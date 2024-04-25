@@ -165,11 +165,12 @@ thread_sleep(int64_t ticks) {
   struct thread* current_thread = thread_current();
   ASSERT(!intr_context());
   if(current_thread != idle_thread) {
-    current_thread->local_tick = timer_ticks() + ticks;
+    current_thread->local_tick = ticks;
     list_insert_ordered(&blocked_list, &current_thread->elem, compare_wakeup_times, NULL);
     thread_block();
   }
   intr_set_level(old_level);
+
 
 }
 void 

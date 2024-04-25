@@ -139,6 +139,40 @@ thread_tick (void)
     intr_yield_on_return ();
 }
 
+bool 
+compare_wakeup_times(const struct list_elem *e1, const struct list_elem *e2, void *aux UNUSED) {
+	struct thread *thread1 = list_entry(e1, struct thread, elem);
+	struct thread *thread2 = list_entry(e2, struct thread, elem);
+	return thread1->local_tick < thread2->local_tick;
+}
+
+
+void
+thread_sleep(int64_t ticks) {
+  enum intr_level old_level = intr_disable(); 
+  struct thread* current_thread = thread_current();
+  ASSERT(!intr_context());
+  if(current_thread != idle_thread) {
+    current_thread->local_tick = ticks;
+    list_insert_ordered(&blocked_list, &current_thread->elem, compare_wakeup_times, NULL);
+    thread_block();
+  }
+  intr_set_level(old_level);
+
+
+}
+void 
+thread_wakeup(int64_t ticks) {
+	for (struct list_elem *element = list_begin(&blocked_list); element != list_end(&blocked_list);) {
+		struct thread *thread = list_entry(element, struct thread, elem);
+		if (thread->local_tick > ticks)
+			break;
+		element = list_remove(element);
+		thread_unblock(thread);
+	}
+}
+
+
 /* Prints thread statistics. */
 void
 thread_print_stats (void) 
@@ -374,7 +408,7 @@ thread_get_recent_cpu (void)
 	recent_cpu = (float)(2*load_avg) / (float)(2*load_avg+1) * recent_cpu + thread_current()->nice;
   	return recent_cpu * 100;
 }
-
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -423,7 +457,7 @@ kernel_thread (thread_func *function, void *aux)
   function (aux);       /* Execute the thread function. */
   thread_exit ();       /* If function() returns, kill the thread. */
 }
-
+
 /* Returns the running thread. */
 struct thread *
 running_thread (void) 
@@ -577,7 +611,7 @@ allocate_tid (void)
 
   return tid;
 }
-
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);

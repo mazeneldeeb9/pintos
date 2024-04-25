@@ -91,6 +91,7 @@ donor_thread_func (void *locks_)
     lock_acquire (locks->first);
 
   lock_acquire (locks->second);
+  printf("yusuf\n");
   msg ("%s got lock", thread_name ());
 
   lock_release (locks->second);

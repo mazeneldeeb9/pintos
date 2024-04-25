@@ -88,8 +88,9 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int nice;                           /* Nice number. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int64_t local_tick;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -106,6 +107,8 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+extern int load_avg, recent_cpu;
 
 void thread_init (void);
 void thread_start (void);
@@ -137,9 +140,5 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-void thread_sleep(int64_t ticks); 
-void thread_wakeup(int64_t ticks); 
-bool compare_wakeup_times(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
-
 
 #endif /* threads/thread.h */

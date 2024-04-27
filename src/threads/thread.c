@@ -227,6 +227,37 @@ thread_block (void)
   schedule ();
 }
 
+void thread_donate_priority(void) {
+	ASSERT(!intr_context());
+
+	struct thread *t = thread_current();
+
+	for (int depth = 0; t && depth < MAX_NESTED_PRIORITY_DONATION; depth++) {
+		if (!t->current_lock)
+			break;
+		t->current_lock->holder->donated_priority = t->donated_priority;
+		t = t->current_lock->holder;
+	}
+}
+
+int thread_get_max_lock_priority(void) {
+	struct thread *t = thread_current();
+	int priority = t->priority;
+	if (list_empty(&t->locks_held))
+		return priority;
+
+	struct lock *tmp_lock;
+	list_for_each_entry(tmp_lock, &t->locks_held, elem) {
+		if (list_empty(&tmp_lock->semaphore.waiters))
+			continue;
+		struct thread *max_thread = list_first_entry(&tmp_lock->semaphore.waiters, struct thread, elem);
+		priority = MAX(priority, max_thread->priority);
+	}
+
+	return priority;
+}
+
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -341,7 +372,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *t =  thread_current ();
+  t->priority = new_priority;
+  t->donated_priority = !list_empty(&t->locks_held) && t->priority > new_priority ? thread_get_max_lock_priority() : new_priority;
   list_sort(&ready_list, compare_priority, NULL);
 }
 
@@ -469,6 +502,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->donated_priority = priority;
+  t->current_lock = NULL;
+	list_init(&t->locks_held);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

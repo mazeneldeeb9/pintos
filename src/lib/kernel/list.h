@@ -112,6 +112,11 @@ struct list
 #define list_first_entry(list, type, member) \
     list_entry(list_begin(list), type, member)
 
+#define list_for_each_entry(pos, list, member) \
+    for (pos = list_first_entry(list, typeof(*pos), member); \
+         &pos->member != list_end(list); \
+         pos = list_next_entry(pos, member))
+
 #define list_next_entry(pos, member) \
     list_entry(list_next(&(pos)->member), typeof(*(pos)), member)
 

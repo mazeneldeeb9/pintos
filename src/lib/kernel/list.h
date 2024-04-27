@@ -109,6 +109,12 @@ struct list
         ((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
                      - offsetof (STRUCT, MEMBER.next)))
 
+#define list_first_entry(list, type, member) \
+    list_entry(list_begin(list), type, member)
+
+#define list_next_entry(pos, member) \
+    list_entry(list_next(&(pos)->member), typeof(*(pos)), member)
+
 /* List initialization.
 
    A list may be initialized by calling list_init():

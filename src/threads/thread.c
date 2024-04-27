@@ -244,10 +244,17 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  thread_yield();
 
   return tid;
 }
 
+bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct thread *thread1 = list_entry(a, struct thread, elem);
+	struct thread *thread2 = list_entry(b, struct thread, elem);
+
+	return thread1->priority > thread2->priority;
+}
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -263,6 +270,37 @@ thread_block (void)
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
+
+void thread_donate_priority(void) {
+	ASSERT(!intr_context());
+
+	struct thread *t = thread_current();
+
+	for (int depth = 0; t && depth < MAX_NESTED_PRIORITY_DONATION; depth++) {
+		if (!t->current_lock)
+			break;
+		t->current_lock->holder->priority = t->priority;
+		t = t->current_lock->holder;
+	}
+}
+
+int thread_get_max_lock_priority(void) {
+	struct thread *t = thread_current();
+	int priority = t->inital_priority;
+	if (list_empty(&t->locks_held))
+		return priority;
+
+	struct lock *tmp_lock;
+	list_for_each_entry(tmp_lock, &t->locks_held, elem) {
+		if (list_empty(&tmp_lock->semaphore.waiters))
+			continue;
+		struct thread *max_thread = list_first_entry(&tmp_lock->semaphore.waiters, struct thread, elem);
+		priority = MAX(priority, max_thread->priority);
+	}
+
+	return priority;
+}
+
 
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
@@ -281,7 +319,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, compare_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -351,11 +389,16 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread ) list_insert_ordered(&ready_list, &cur->elem, compare_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+void thread_try_yield(void) {
+	if (!list_empty(&ready_list) && thread_current() != idle_thread) {
+		thread_yield();
+	}
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -379,7 +422,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *t =  thread_current ();
+  t->inital_priority = new_priority;
+  t->priority = !list_empty(&t->locks_held) && t->priority > new_priority ? thread_get_max_lock_priority() : new_priority;
 }
 
 /* Returns the current thread's priority. */
@@ -506,6 +551,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->inital_priority = priority;
+  t->current_lock = NULL;
+	list_init(&t->locks_held);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

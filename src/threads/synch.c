@@ -200,12 +200,11 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
-  ASSERT (lock != NULL);
   ASSERT (!intr_context ());
+  ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
   struct thread *t = thread_current();
-	// Donates Priority (as current thread has the highest priority)
-	if (lock->holder) {
+	if (lock->holder && !thread_mlfqs) {
 		ASSERT(lock->holder->priority <= t->priority);
 
 		t->current_lock = lock;
@@ -252,7 +251,7 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   struct thread *t = thread_current();
 	list_remove(&lock->elem);
-  t->priority = thread_get_max_lock_priority();
+  if (!thread_mlfqs) t->priority = thread_get_max_lock_priority();
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }

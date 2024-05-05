@@ -19,12 +19,22 @@ enum thread_status
 typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-
+# define fixed_point 16
+#define Delta (1<<fixed_point)
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 #define MAX_NESTED_PRIORITY_DONATION 8
+
+
+struct real
+  {
+    int val ;
+  };
+
+
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -90,6 +100,8 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int inital_priority;               // for priority donations of higher priority threads
+    int nice;
+   struct real  recent_cpu;
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t local_tick;
     struct list locks_held;             // List of locks held by the thread
@@ -110,10 +122,10 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
+struct real load_avg;
 void thread_init (void);
 void thread_start (void);
-
+void thread_calculate_recent_cpu(struct thread * t);
 void thread_tick (void);
 void thread_print_stats (void);
 
@@ -134,6 +146,20 @@ void thread_yield (void);
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
+struct real int_to_real(int n);      //convert integer n to fixed point
+
+int real_truncate(struct real x);    //convert fixed point x to integer (rounding towards zero)
+
+int real_round(struct real x);       //convert fixed point x to integer (rounding to nearest)
+
+struct real add_real_real(struct real x, struct real y); // returns real x +  real y
+struct real sub_real_real(struct real x, struct real y); // returns real x - real y
+struct real add_real_int(struct real x, int n); // returns real x +  int n
+struct real sub_real_int(struct real x, int n); // returns real x - int n
+struct real mul_real_real(struct real x, struct real y ); // returns real x * real y
+struct real mul_real_int(struct real x, int n); // returns real x * int n
+struct real div_real_real(struct real x, struct real y); // returns real x /real y
+struct real div_real_int(struct real x, int n) ;
 int thread_get_priority (void);
 void thread_set_priority (int);
 void thread_try_yield(void);
@@ -147,4 +173,6 @@ bool compare_wakeup_times(const struct list_elem *a, const struct list_elem *b, 
 bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 void thread_donate_priority(void);
 int thread_get_max_lock_priority(void);
+void thread_recalculations_every_second(void);
+int thread_update_priority(struct thread *t);
 #endif /* threads/thread.h */

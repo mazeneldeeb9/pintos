@@ -7,7 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-  
+
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -173,6 +173,13 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  if(thread_mlfqs){
+        thread_current()->recent_cpu=add_real_int(thread_current()->recent_cpu,1);
+        if(timer_ticks() % TIMER_FREQ ==0) // one second
+           thread_recalculations_every_second();
+        if(timer_ticks() % 4 ==0) thread_update_priority(thread_current());
+
+   }
   thread_tick ();
   thread_wakeup(ticks);
 }

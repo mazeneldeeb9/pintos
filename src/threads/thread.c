@@ -66,6 +66,14 @@ bool thread_mlfqs;
 
 static void kernel_thread (thread_func *, void *aux);
 
+struct real add_real_real(struct real x, struct real y); // returns real x +  real y
+struct real sub_real_real(struct real x, struct real y); // returns real x - real y
+struct real add_real_int(struct real x, int n); // returns real x +  int n
+struct real sub_real_int(struct real x, int n); // returns real x - int n
+struct real mul_real_real(struct real x, struct real y ); // returns real x * real y
+struct real mul_real_int(struct real x, int n); // returns real x * int n
+struct real div_real_real(struct real x, struct real y); // returns real x /real y
+struct real div_real_int(struct real x, int n) ;
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
@@ -75,8 +83,9 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-
-
+int thread_update_priority(struct thread * t);
+void thread_recalculations_every_second(void);
+void thread_calculate_recent_cpu(struct thread * t);
 void thread_sleep(int64_t ticks); 
 void thread_wakeup(int64_t ticks); 
 bool compare_wakeup_times(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
@@ -105,6 +114,7 @@ thread_init (void)
   list_init (&blocked_list);
   list_init (&all_list);
   next_awake = INT64_MAX;
+  load_avg.val=0;
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -277,8 +287,7 @@ void thread_donate_priority(void) {
 	struct thread *t = thread_current();
 
 	for (int depth = 0; t && depth < MAX_NESTED_PRIORITY_DONATION; depth++) {
-		if (!t->current_lock)
-			break;
+		if (t->current_lock == NULL) break;
 		t->current_lock->holder->priority = t->priority;
 		t = t->current_lock->holder;
 	}
@@ -422,47 +431,74 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  struct thread *t =  thread_current ();
-  t->inital_priority = new_priority;
-  t->priority = !list_empty(&t->locks_held) && t->priority > new_priority ? thread_get_max_lock_priority() : new_priority;
+  if(!thread_mlfqs) {
+    struct thread *t =  thread_current ();
+    t->inital_priority = new_priority;
+    t->priority = !list_empty(&t->locks_held) && t->priority > new_priority ? thread_get_max_lock_priority() : new_priority;
+  }
+ 
+}
+void
+thread_calculate_recent_cpu(struct thread * t) {
+    t->recent_cpu =add_real_int(mul_real_real(div_real_real( mul_real_int(load_avg,2),
+                        add_real_int(mul_real_int(load_avg,2),1)),t->recent_cpu),t->nice);
+}
+void
+thread_recalculations_every_second(void){
+    int size =list_size(&ready_list);
+    if(thread_current() != idle_thread)
+        size++;
+    load_avg = add_real_real(mul_real_real(div_real_real(int_to_real(59),int_to_real(60)),load_avg),
+                             mul_real_int(div_real_real(int_to_real(1),int_to_real(60)),size));
+    thread_foreach(thread_calculate_recent_cpu,NULL);
+    thread_foreach(thread_update_priority,NULL);
 }
 
+int
+thread_update_priority(struct thread * t) {
+  if(!thread_mlfqs || t==idle_thread)
+        return t->priority;
+    int new_priority = PRI_MAX - real_round(div_real_int((t->recent_cpu),4)) - (t->nice *2);
+    t->priority= new_priority;
+    return new_priority;
+
+}
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return thread_current ()->priority;   
 }
 
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  enum intr_level old_level = intr_disable();
+  thread_current()->nice=nice;
+  thread_update_priority(thread_current());
+  intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return real_round(mul_real_int(load_avg,100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return real_round(mul_real_int(thread_current()->recent_cpu,100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -553,6 +589,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->inital_priority = priority;
   t->current_lock = NULL;
+   if(thread_mlfqs)
+  {
+    t-> recent_cpu = int_to_real(0);
+    t->nice =0;
+  }
 	list_init(&t->locks_held);
   t->magic = THREAD_MAGIC;
 
@@ -671,6 +712,97 @@ allocate_tid (void)
   return tid;
 }
 
+
+struct real
+int_to_real(int n)
+{
+  struct real result;
+  result.val = n * Delta;
+  return result;
+}
+
+int
+real_truncate(struct real x)
+{
+    return (x.val / Delta);
+}
+
+int
+real_round(struct real x)
+{
+    x.val=(x.val)>>(fixed_point -1);
+    if(((x.val)%2)==1)
+        return (x.val>>1)+1 ;
+    else
+        return (x.val>>1);
+
+}
+
+struct real
+add_real_real(struct real x, struct real y)
+{
+    struct real result ;
+    result.val= x.val+y.val;
+    return result;
+}
+
+struct real
+sub_real_real(struct real x, struct real y)
+{
+    struct real result ;    
+    result.val= x.val-y.val;
+    return result;
+}
+
+struct real
+add_real_int(struct real x, int n)
+{
+    struct real result ;
+    result.val= x.val+(n * Delta);
+    return result;
+}
+
+struct real
+sub_real_int(struct real x, int n)
+{
+    struct real result ;
+    result.val= x.val-(n * Delta);
+    return result;
+
+}
+
+struct real
+mul_real_real(struct real x, struct real y )
+{
+    struct real result ;
+    result.val= (((int64_t)x.val)*y.val)/Delta;
+    return result;
+}
+
+struct real
+mul_real_int(struct real x, int n)
+{
+    struct real result ;
+    result.val= (x.val) *n;
+    return result;
+}
+
+struct real
+div_real_real(struct real x, struct real y) // returns real x /real y
+{
+    struct real result ;
+    result.val=(((int64_t)x.val)*Delta)/y.val;
+    return result;
+}
+
+struct real
+div_real_int(struct real x, int n) // returns real x / int n
+{
+    struct real result ;
+    result.val= (x.val) /n;
+    return result;
+};
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
